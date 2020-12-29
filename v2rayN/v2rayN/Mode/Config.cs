@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using v2rayN.Base;
+using v2rayN.HttpProxyHandler;
+
 
 namespace v2rayN.Mode
 {
@@ -65,39 +67,6 @@ namespace v2rayN.Mode
         {
             get; set;
         }
-
-        /// <summary>
-        /// 路由模式
-        /// </summary>
-        public string routingMode
-        {
-            get; set;
-        }
-
-        /// <summary>
-        /// 用户自定义需代理的网址或ip
-        /// </summary>
-        public List<string> useragent
-        {
-            get; set;
-        }
-
-        /// <summary>
-        /// 用户自定义直连的网址或ip
-        /// </summary>
-        public List<string> userdirect
-        {
-            get; set;
-        }
-
-        /// <summary>
-        /// 用户自定义阻止的网址或ip
-        /// </summary>
-        public List<string> userblock
-        {
-            get; set;
-        }
-
         /// <summary>
         /// KcpItem
         /// </summary>
@@ -107,20 +76,27 @@ namespace v2rayN.Mode
         }
 
         /// <summary>
-        /// 监听状态 0-not 1-http 2-PAC
+        /// 
         /// </summary>
-        public int listenerType
+        public ESysProxyType sysProxyType
         {
             get; set;
         }
 
         /// <summary>
-        /// 自定义GFWList url
+        /// 自定义服务器下载测速url
         /// </summary>
-        public string urlGFWList
+        public string speedTestUrl
         {
             get; set;
         }
+        /// <summary>
+        /// 自定义“服务器真连接延迟”测试url
+        /// </summary>
+        public string speedPingTestUrl
+        {
+            get; set;
+        }        
 
         /// <summary>
         /// 允许来自局域网的连接
@@ -139,13 +115,21 @@ namespace v2rayN.Mode
         }
 
         /// <summary>
+        /// 去重时优先保留较旧（顶部）节点
+        /// </summary>
+        public bool keepOlderDedupl
+        {
+            get; set;
+        }
+
+        /// <summary>
         /// 视图刷新率
         /// </summary>
         public int statisticsFreshRate
         {
             get; set;
         }
-         
+
 
         /// <summary>
         /// 自定义远程DNS
@@ -154,6 +138,15 @@ namespace v2rayN.Mode
         {
             get; set;
         }
+
+        /// <summary>
+        /// 是否允许不安全连接
+        /// </summary>
+        public bool defAllowInsecure
+        {
+            get; set;
+        }
+
         /// <summary>
         /// 订阅
         /// </summary>
@@ -168,11 +161,10 @@ namespace v2rayN.Mode
         {
             get; set;
         }
-
-        public List<string> userPacRule
+        public List<RoutingItem> routingItem
         {
             get; set;
-        }      
+        }
 
         #region 函数
 
@@ -273,7 +265,7 @@ namespace v2rayN.Mode
         {
             if (index < 0 || Utils.IsNullOrEmpty(vmess[index].allowInsecure))
             {
-                return true;
+                return defAllowInsecure;
             }
             return Convert.ToBoolean(vmess[index].allowInsecure);
         }
@@ -284,10 +276,7 @@ namespace v2rayN.Mode
             {
                 return GetLocalPort(Global.InboundSocks) + 1;
             }
-            else if (protocol == "pac")
-            {
-                return GetLocalPort(Global.InboundSocks) + 2;
-            }
+           
             else if (protocol == "speedtest")
             {
                 return GetLocalPort(Global.InboundSocks) + 103;
@@ -332,7 +321,14 @@ namespace v2rayN.Mode
 
             return vmess[index].getItemId();
         }
-
+        public string flow()
+        {
+            if (index < 0)
+            {
+                return string.Empty;
+            }
+            return vmess[index].flow.TrimEx();
+        }
         #endregion
 
     }
@@ -358,14 +354,14 @@ namespace v2rayN.Mode
             configType = (int)EConfigType.Vmess;
             testResult = string.Empty;
             subid = string.Empty;
+            flow = string.Empty;
         }
 
         public string getSummary()
         {
-            string summary = string.Empty;
-            summary = string.Format("{0}-", ((EConfigType)configType).ToString());
+            string summary = string.Format("[{0}] ", ((EConfigType)configType).ToString());
             string[] arrAddr = address.Split('.');
-            string addr = string.Empty;
+            string addr;
             if (arrAddr.Length > 2)
             {
                 addr = $"{arrAddr[0]}***{arrAddr[arrAddr.Length - 1]}";
@@ -378,21 +374,26 @@ namespace v2rayN.Mode
             {
                 addr = address;
             }
-            if (configType == (int)EConfigType.Vmess)
+            switch (configType)
             {
-                summary += string.Format("{0}({1}:{2})", remarks, addr, port);
-            }
-            else if (configType == (int)EConfigType.Shadowsocks)
-            {
-                summary += string.Format("{0}({1}:{2})", remarks, addr, port);
-            }
-            else if (configType == (int)EConfigType.Socks)
-            {
-                summary += string.Format("{0}({1}:{2})", remarks, addr, port);
-            }
-            else
-            {
-                summary += string.Format("{0}", remarks);
+                case (int)EConfigType.Vmess:
+                    summary += string.Format("{0}({1}:{2})", remarks, addr, port);
+                    break;
+                case (int)EConfigType.Shadowsocks:
+                    summary += string.Format("{0}({1}:{2})", remarks, addr, port);
+                    break;
+                case (int)EConfigType.Socks:
+                    summary += string.Format("{0}({1}:{2})", remarks, addr, port);
+                    break;
+                case (int)EConfigType.VLESS:
+                    summary += string.Format("{0}({1}:{2})", remarks, addr, port);
+                    break;
+                case (int)EConfigType.Trojan:
+                    summary += string.Format("{0}({1}:{2})", remarks, addr, port);
+                    break;
+                default:
+                    summary += string.Format("{0}", remarks);
+                    break;
             }
             return summary;
         }
@@ -419,7 +420,7 @@ namespace v2rayN.Mode
 
         public string getItemId()
         {
-            var itemId = $"{address}{port}{requestHost}{path}";
+            string itemId = $"{address}{port}{requestHost}{path}";
             itemId = Utils.Base64Encode(itemId);
             return itemId;
         }
@@ -468,7 +469,7 @@ namespace v2rayN.Mode
             get; set;
         }
         /// <summary>
-        /// tcp,kcp,ws
+        /// tcp,kcp,ws,h2,quic
         /// </summary>
         public string network
         {
@@ -543,6 +544,14 @@ namespace v2rayN.Mode
         /// SubItem id
         /// </summary>
         public string subid
+        {
+            get; set;
+        }
+
+        /// <summary>
+        /// VLESS flow
+        /// </summary>
+        public string flow
         {
             get; set;
         }
@@ -672,10 +681,44 @@ namespace v2rayN.Mode
     [Serializable]
     public class UIItem
     {
+
+
+        public System.Drawing.Size mainSize
+        {
+            get; set;
+        }
+
+        public Dictionary<string, int> mainLvColWidth
+        {
+            get; set;
+        }
+    }
+
+    [Serializable]
+    public class RoutingItem
+    {
         /// <summary>
         /// 
         /// </summary>
-        public int mainQRCodeWidth { get; set; } = 600;
+        public string remarks
+        {
+            get; set;
+        }
+         
+        /// <summary>
+        /// 
+        /// </summary>
+        public string outboundTag
+        {
+            get; set;
+        }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        public List<string> userRules
+        {
+            get; set;
+        }
     }
 }

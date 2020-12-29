@@ -4,59 +4,57 @@ using v2rayN.Mode;
 namespace v2rayN.HttpProxyHandler
 {
     /// <summary>
+    /// 系统代理(http)模式
+    /// </summary>
+    public enum ListenerType
+    {
+        noHttpProxy = 0,
+        GlobalHttp = 1,
+        HttpOpenAndClear = 2,
+        HttpOpenOnly = 3,
+    }
+    /// <summary>
     /// 系统代理(http)总处理
     /// 启动privoxy提供http协议
-    /// 设置IE系统代理或者PAC模式
+    /// 设置IE系统代理
     /// </summary>
     class HttpProxyHandle
     {
         private static bool Update(Config config, bool forceDisable)
         {
-            int type = config.listenerType;
-
+            // ListenerType type = config.listenerType;
+            var type = ListenerType.noHttpProxy;
             if (forceDisable)
             {
-                type = 0;
+                type = ListenerType.noHttpProxy;
             }
 
             try
             {
-                if (type != 0)
+                if (type != ListenerType.noHttpProxy)
                 {
-                    var port = Global.httpPort;
+                    int port = Global.httpPort;
                     if (port <= 0)
                     {
                         return false;
                     }
-                    if (type == 1)
+                    if (type == ListenerType.GlobalHttp)
                     {
-                        //PACServerHandle.Stop();
-                        ProxySetting.SetProxy($"{Global.Loopback}:{port}", Global.IEProxyExceptions, 2);
+                        //ProxySetting.SetProxy($"{Global.Loopback}:{port}", Global.IEProxyExceptions, 2);
+                        SysProxyHandle.SetIEProxy(true, true, $"{Global.Loopback}:{port}");
                     }
-                    else if (type == 2)
+                    else if (type == ListenerType.HttpOpenAndClear)
                     {
-                        string pacUrl = GetPacUrl();
-                        ProxySetting.SetProxy(pacUrl, "", 4);
-                        //PACServerHandle.Stop();
-                        PACServerHandle.Init(config);
+                        SysProxyHandle.ResetIEProxy();
                     }
-                    else if (type == 3)
+                    else if (type == ListenerType.HttpOpenOnly)
                     {
-                        //PACServerHandle.Stop();
-                        ProxySetting.UnsetProxy();
-                    }
-                    else if (type == 4)
-                    {
-                        string pacUrl = GetPacUrl();
-                        ProxySetting.UnsetProxy();
-                        //PACServerHandle.Stop();
-                        PACServerHandle.Init(config);
+                        //SysProxyHandle.ResetIEProxy();
                     }
                 }
                 else
                 {
-                    ProxySetting.UnsetProxy();
-                    //PACServerHandle.Stop();
+                    SysProxyHandle.ResetIEProxy();
                 }
             }
             catch (Exception ex)
@@ -83,7 +81,6 @@ namespace v2rayN.HttpProxyHandler
                         Global.sysAgent = true;
                         Global.socksPort = localPort;
                         Global.httpPort = PrivoxyHandler.Instance.RunningPort;
-                        Global.pacPort = config.GetLocalPort("pac");
                     }
                 }
             }
@@ -100,7 +97,10 @@ namespace v2rayN.HttpProxyHandler
         {
             try
             {
-                Update(config, true);
+                //if (config.listenerType != ListenerType.HttpOpenOnly)
+                //{
+                //    Update(config, true);
+                //}
 
                 PrivoxyHandler.Instance.Stop();
 
@@ -121,6 +121,11 @@ namespace v2rayN.HttpProxyHandler
         public static void RestartHttpAgent(Config config, bool forced)
         {
             bool isRestart = false;
+            //if (config.listenerType == ListenerType.noHttpProxy)
+            //{
+            //    // 关闭http proxy时，直接返回
+            //    return;
+            //}
             //强制重启或者socks端口变化
             if (forced)
             {
@@ -142,10 +147,40 @@ namespace v2rayN.HttpProxyHandler
             Update(config, false);
         }
 
-        public static string GetPacUrl()
+        public static bool UpdateSysProxy(Config config, bool forceDisable)
         {
-            string pacUrl = $"http://{Global.Loopback}:{Global.pacPort}/pac/?t={ DateTime.Now.ToString("HHmmss")}";
-            return pacUrl;
+            var type = config.sysProxyType;
+
+            if (forceDisable)
+            {
+                type = ESysProxyType.ForcedClear;
+            }
+
+            try
+            {
+                Global.httpPort = config.GetLocalPort(Global.InboundHttp);
+                int port = Global.httpPort;
+                if (port <= 0)
+                {
+                    return false;
+                }
+                if (type == ESysProxyType.ForcedChange)
+                {
+                    SysProxyHandle.SetIEProxy(true, true, $"{Global.Loopback}:{port}");
+                }
+                else if (type == ESysProxyType.ForcedClear)
+                {
+                    SysProxyHandle.ResetIEProxy();
+                }
+                else if (type == ESysProxyType.Unchanged)
+                {
+                }
+            }
+            catch (Exception ex)
+            {
+                Utils.SaveLog(ex.Message, ex);
+            }
+            return true;
         }
     }
 }
